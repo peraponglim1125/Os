@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face Attendance System</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet" />
+
+  <style>
+    body { font-family: 'Sarabun', sans-serif; background-color: #f8f9fa; }
+    .card { box-shadow: 0 4px 6px rgba(0,0,0,0.08); border: none; }
+    .card-header { background-color: #0d6efd; color: #fff; font-weight: 700; }
+
+    /* กล้อง */
+    .camera-wrap { position: sticky; top: 16px; }
+    .camera-container {
+      position: relative;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      text-align: center;
+      min-height: 360px;
+    }
+    .camera-feed { width: 100%; height: auto; max-height: 640px; object-fit: contain; }
+    .live-badge {
+      position: absolute; top: 10px; left: 10px;
+      background: rgba(255,0,0,0.75); color: #fff; padding: 6px 10px;
+      border-radius: 8px; font-size: 12px; animation: blink 2s infinite;
+      z-index: 2;
+    }
+    @keyframes blink { 0%{opacity:1} 50%{opacity:.55} 100%{opacity:1} }
+
+    /* ปุ่มสแกน */
+    .btn-checkin { height: 72px; font-size: 22px; font-weight: 800; }
+    .scan-status {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+      border: 1px solid #e9ecef;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 999px; background: #adb5bd;
+      display: inline-block; margin-right: 8px;
+    }
+    .dot.on { background: #198754; box-shadow: 0 0 0 4px rgba(25,135,84,.18); }
+
+    /* overlay loading */
+    #loadingOverlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(255,255,255,0.75); z-index: 9999;
+      justify-content: center; align-items: center;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="loadingOverlay">
+    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+  </div>
+
+  <div class="container py-4">
+    <h1 class="text-center mb-4">📸 ระบบเช็คชื่อด้วยใบหน้า</h1>
+
+    <!-- =======================
+         หน้าเลือก/สร้างคาบ (Session)
+         ======================= -->
+    <div id="sessionPicker" class="row justify-content-center">
+      <div class="col-12 col-lg-8">
+        <div class="card mb-3">
+          <div class="card-header">🗓️ สร้างคาบ / เลือกคาบ</div>
+          <div class="card-body">
+            <form id="createSessionForm" onsubmit="createSession(event)" class="row g-2 align-items-center">
+              <div class="col-12 col-md-9">
+                <input id="sessionTitle" class="form-control" placeholder="เช่น คาบที่ 3 (09:00-10:00)" required />
+              </div>
+              <div class="col-12 col-md-3">
+                <button class="btn btn-primary w-100">➕ สร้างคาบ</button>
+              </div>
+            </form>
+
+            <hr class="my-3" />
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div class="fw-bold">คาบที่มีอยู่</div>
+              <button onclick="loadSessions()" class="btn btn-sm btn-light">Refresh</button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="table table-sm table-striped align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 90px;">คาบ</th>
+                    <th>ชื่อคาบ</th>
+                    <th style="width: 160px;">สร้างเมื่อ</th>
+                    <th style="width: 140px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="sessionTable"></tbody>
+              </table>
+            </div>
+
+            <div class="text-muted small mt-2">
+              * รายชื่อนักศึกษา/ใบหน้าใช้ร่วมกันทุกคาบ แต่การเช็คชื่อจะแยกตามคาบที่เลือก
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- แถบข้อมูลคาบ (แสดงเมื่อเลือกคาบแล้ว) -->
+    <div id="sessionInfo" class="d-none">
+      <div class="card mb-3">
+        <div class="card-body d-flex flex-wrap gap-2 align-items-center justify-content-between">
+          <div>
+            <div class="text-muted small">คาบที่กำลังใช้งาน</div>
+            <div class="h4 mb-0">🎓 <span id="sessionInfoTitle">-</span></div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" onclick="switchSession()">🔁 เปลี่ยนคาบ</button>
+            <button class="btn btn-outline-danger" onclick="stopAutoScan();" title="หยุดสแกน">⏹ หยุดสแกน</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="attendanceApp" class="row g-3 align-items-start d-none">
+      <div class="col-12 col-lg-7">
+        <div class="camera-wrap">
+          <div class="card mb-3">
+            <div class="card-header bg-dark text-white text-center">
+              👁️ จุดเช็คชื่อ (Scan Point)
+            </div>
+
+            <div class="card-body p-0 bg-black">
+              <div class="camera-container">
+                <span class="live-badge">🔴 LIVE</span>
+                <img id="camStream" src="/api/video_feed?mode=preview" class="camera-feed" alt="Camera" />
+              </div>
+            </div>
+
+            <div class="card-footer bg-white p-3">
+              <div class="scan-status mb-2">
+                <div>
+                  <span id="scanDot" class="dot"></span>
+                  <span class="fw-bold">สถานะ:</span>
+                  <span id="scanStateText" class="text-muted">ปิดอยู่</span>
+                </div>
+                <div class="text-muted small">
+                  ให้นักศึกษาเดินเข้ามาทีละคน
+                </div>
+              </div>
+
+              <button id="btnToggleScan" onclick="toggleAutoScan()"
+                class="btn btn-success btn-checkin shadow-sm w-100">
+                ▶️ เริ่มระบบเช็คชื่อ (Start)
+              </button>
+
+              <div id="checkinResult" class="alert mt-3 d-none text-center" role="alert"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-5">
+        <div class="d-grid gap-3">
+          <div class="card">
+            <div class="card-header">📝 ลงทะเบียนใหม่</div>
+            <div class="card-body">
+              <form id="enrollForm" onsubmit="enrollStudent(event)">
+                <div class="row g-2">
+                  <div class="col-4">
+                    <input type="text" id="studentId" class="form-control form-control-sm" placeholder="ID" required />
+                  </div>
+                  <div class="col-8">
+                    <input type="text" id="studentName" class="form-control form-control-sm" placeholder="Name" required />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-sm btn-primary w-100 mt-2">บันทึกชื่อ</button>
+              </form>
+              <hr class="my-2">
+              <div class="input-group input-group-sm">
+                <input type="text" id="faceStudentId" class="form-control" placeholder="ID เพื่อเก็บหน้า" />
+                <button onclick="enrollFace()" class="btn btn-outline-primary">ถ่ายรูปเก็บ</button>
+              </div>
+              <div id="enrollFaceResult" class="mt-1"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center bg-warning text-dark">
+              <span>🕒 เช็คชื่อล่าสุด</span>
+              <button onclick="loadAttendance()" class="btn btn-sm btn-light py-0">Refresh</button>
+            </div>
+            <div class="card-body p-0" style="max-height: 400px; overflow-y: auto;">
+              <table class="table table-striped table-sm mb-0 text-center small">
+                <thead>
+                  <tr><th>เวลา</th><th>ID</th><th>ชื่อ</th></tr>
+                </thead>
+                <tbody id="attendanceTable"></tbody>
+              </table>
+            </div>
+          </div>
+          
+           <div class="card">
+             <div class="card-header d-flex justify-content-between align-items-center">
+               <span>📋 รายชื่อทั้งหมด</span>
+               <button onclick="loadStudents()" class="btn btn-sm btn-light py-0">Refresh</button>
+             </div>
+             <div class="card-body p-0" style="max-height: 200px; overflow-y: auto;">
+               <table class="table table-sm mb-0 text-center small">
+                 <tbody id="studentTable"></tbody>
+               </table>
+             </div>
+           </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '/api';
+
+    // ========= Sessions =========
+    function getSessionIdFromUrl() {
+      const sp = new URLSearchParams(window.location.search);
+      return sp.get('session_id');
+    }
+
+    let CURRENT_SESSION_ID = null;
+    let CURRENT_SESSION_TITLE = null;
+
+    function showSessionPicker() {
+      document.getElementById('sessionPicker').classList.remove('d-none');
+      document.getElementById('sessionInfo').classList.add('d-none');
+      document.getElementById('attendanceApp').classList.add('d-none');
+    }
+
+    function showAttendanceApp() {
+      document.getElementById('sessionPicker').classList.add('d-none');
+      document.getElementById('sessionInfo').classList.remove('d-none');
+      document.getElementById('attendanceApp').classList.remove('d-none');
+    }
+
+    function enterSession(sessionId, title) {
+      CURRENT_SESSION_ID = String(sessionId);
+      CURRENT_SESSION_TITLE = title || `คาบ #${sessionId}`;
+      localStorage.setItem('last_session_id', CURRENT_SESSION_ID);
+      localStorage.setItem('last_session_title', CURRENT_SESSION_TITLE);
+
+      // เปลี่ยน URL ให้มี session_id (กัน refresh แล้วหลุด)
+      const newUrl = `/?session_id=${encodeURIComponent(CURRENT_SESSION_ID)}`;
+      history.replaceState(null, '', newUrl);
+
+      document.getElementById('sessionInfoTitle').textContent = CURRENT_SESSION_TITLE;
+      showAttendanceApp();
+
+      // โหลดข้อมูล
+      loadStudents();
+      loadAttendance();
+      setStreamMode('preview');
+    }
+
+    function switchSession() {
+      stopAutoScan();
+      CURRENT_SESSION_ID = null;
+      CURRENT_SESSION_TITLE = null;
+      localStorage.removeItem('last_session_id');
+      localStorage.removeItem('last_session_title');
+      history.replaceState(null, '', '/');
+      showSessionPicker();
+      loadSessions();
+    }
+
+    async function loadSessions() {
+      const res = await apiCall('/sessions', 'GET');
+      const tbody = document.getElementById('sessionTable');
+      tbody.innerHTML = '';
+      if (!res || res.error) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-danger">โหลดคาบไม่สำเร็จ</td></tr>`;
+        return;
+      }
+
+      if (res.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-muted">ยังไม่มีคาบ</td></tr>`;
+        return;
+      }
+
+      res.forEach(s => {
+        const created = new Date(s.created_at).toLocaleString('th-TH', {
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        });
+
+        tbody.innerHTML += `
+          <tr>
+            <td class="fw-bold">#${s.id}</td>
+            <td>${escapeHtml(s.title)}</td>
+            <td class="text-muted small">${created}</td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-success" onclick="enterSession(${s.id}, '${escapeJsString(s.title)}')">เข้าไปเช็คชื่อ</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    async function createSession(e) {
+      e.preventDefault();
+      const title = document.getElementById('sessionTitle').value.trim();
+      if (!title) return;
+
+      const res = await apiCall('/sessions', 'POST', { title });
+      if (res.error) {
+        alert(res.error);
+        return;
+      }
+      document.getElementById('createSessionForm').reset();
+      // เข้าคาบที่สร้างทันที
+      enterSession(res.session_id, res.title);
+    }
+
+    // helpers กัน XSS ใน render ตาราง (ง่ายๆ)
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+    function escapeJsString(s) {
+      return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    // ========= Stream mode =========
+    function setStreamMode(mode, studentId = "") {
+      const img = document.getElementById("camStream");
+      const sid = studentId ? `&student_id=${encodeURIComponent(studentId)}` : "";
+      img.src = `${API_BASE}/video_feed?mode=${mode}${sid}&t=${Date.now()}`;
+    }
+
+    // ========= API Helper =========
+    async function apiCall(endpoint, method = 'GET', body = null) {
+      // overlay เฉพาะตอนลงทะเบียน ไม่เอาตอน auto scan
+      if(!endpoint.includes('checkin') && !endpoint.includes('face_status')) {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+      }
+      try {
+        const options = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body) options.body = JSON.stringify(body);
+        const res = await fetch(API_BASE + endpoint, options);
+        return await res.json();
+      } catch (err) {
+        console.error(err);
+        return { error: err.message };
+      } finally {
+        document.getElementById('loadingOverlay').style.display = 'none';
+      }
+    }
+
+    // ========= Continuous Scan Logic =========
+    let autoScanOn = false;
+    let scanTimer = null;
+    let isProcessing = false;
+    let resultPause = false;
+
+    async function loopCheckFace() {
+      if (!autoScanOn || isProcessing || resultPause) return;
+
+      try {
+        const statusRes = await fetch(API_BASE + '/face_status');
+        const statusData = await statusRes.json();
+
+        if (statusData.ok) {
+           await doCheckin();
+        }
+      } catch (err) {
+        console.log("Loop error:", err);
+      }
+    }
+
+    async function doCheckin() {
+      isProcessing = true;
+      
+      try {
+        setStreamMode("checkin");
+
+        if (!CURRENT_SESSION_ID) {
+          alert('กรุณาเลือกคาบก่อน');
+          stopAutoScan();
+          return;
+        }
+
+        const res = await apiCall('/checkin', 'POST', { session_id: Number(CURRENT_SESSION_ID) });
+        showResult(res);
+
+        if (res.status === 'checked_in' || res.status === 'already_checked') {
+          resultPause = true; 
+          setTimeout(() => {
+            clearResult();
+            resultPause = false;
+            setStreamMode("checkin");
+          }, 3000); 
+        } else {
+          resultPause = true;
+          setTimeout(() => {
+             clearResult();
+             resultPause = false;
+             setStreamMode("checkin");
+          }, 1500);
+        }
+
+      } catch(e) {
+        console.error(e);
+        isProcessing = false;
+      } finally {
+        isProcessing = false;
+      }
+    }
+
+    function showResult(res) {
+      const el = document.getElementById('checkinResult');
+      el.classList.remove('d-none', 'alert-success', 'alert-warning', 'alert-danger');
+
+      if (res.status === 'checked_in') {
+        el.className = 'alert alert-success';
+        el.innerHTML = `<h1 class="display-4 fw-bold">✅ ผ่าน</h1>
+                        <h3>${res.student_id}</h3>
+                        <h4>${res.name}</h4>`;
+        loadAttendance();
+      } else if (res.status === 'already_checked') {
+        el.className = 'alert alert-warning';
+        el.innerHTML = `<h2 class="fw-bold">⚠️ เช็คไปแล้ว</h2>
+                        <h4>${res.name}</h4>`;
+      } else {
+        el.className = 'alert alert-danger';
+        el.innerHTML = `<h3 class="fw-bold">❌ ไม่พบข้อมูล</h3>
+                        <p class="mb-0">${res.message ? escapeHtml(res.message) : 'กรุณาลองใหม่อีกครั้ง'}</p>`;
+      }
+    }
+
+    function clearResult() {
+      const el = document.getElementById('checkinResult');
+      el.classList.add('d-none');
+    }
+
+    function startAutoScan() {
+      autoScanOn = true;
+      isProcessing = false;
+      resultPause = false;
+      updateScanUI();
+      setStreamMode("checkin");
+
+      if (scanTimer) clearInterval(scanTimer);
+      scanTimer = setInterval(loopCheckFace, 300);
+    }
+
+    function stopAutoScan() {
+      autoScanOn = false;
+      if (scanTimer) clearInterval(scanTimer);
+      updateScanUI();
+      setStreamMode("preview");
+      clearResult();
+    }
+
+    function toggleAutoScan() {
+      if (autoScanOn) stopAutoScan();
+      else startAutoScan();
+    }
+
+    function updateScanUI() {
+      const btn = document.getElementById("btnToggleScan");
+      const dot = document.getElementById("scanDot");
+      const txt = document.getElementById("scanStateText");
+
+      if (autoScanOn) {
+        btn.className = "btn btn-danger btn-checkin w-100 shadow";
+        btn.textContent = "⏹ หยุดระบบ (Stop)";
+        dot.classList.add("on");
+        txt.textContent = "กำลังทำงาน...";
+        txt.className = "text-success fw-bold";
+      } else {
+        btn.className = "btn btn-success btn-checkin w-100 shadow";
+        btn.textContent = "▶️ เริ่มระบบเช็คชื่อ (Start)";
+        dot.classList.remove("on");
+        txt.textContent = "ปิดอยู่";
+        txt.className = "text-muted";
+      }
+    }
+
+    // ========= Enroll & Data =========
+    async function enrollStudent(e) {
+      e.preventDefault();
+      if(autoScanOn) stopAutoScan();
+      
+      const id = document.getElementById('studentId').value;
+      const name = document.getElementById('studentName').value;
+      const res = await apiCall('/enroll', 'POST', { student_id: id, name: name });
+      if (res.error) alert(res.error);
+      else {
+        alert('ลงทะเบียนสำเร็จ');
+        document.getElementById('enrollForm').reset();
+        loadStudents();
+      }
+    }
+
+    async function enrollFace() {
+      if(autoScanOn) stopAutoScan();
+      
+      const id = document.getElementById('faceStudentId').value;
+      if (!id) return alert('ใส่รหัสนักศึกษาก่อน');
+
+      setStreamMode("enroll", id);
+      const res = await apiCall('/enroll_face', 'POST', { student_id: id });
+      
+      const div = document.getElementById('enrollFaceResult');
+      if (res.error) div.innerHTML = `<span class="text-danger">❌ ${escapeHtml(res.error)}</span>`;
+      else {
+        div.innerHTML = `<span class="text-success">✅ เรียบร้อย</span>`;
+        loadStudents();
+      }
+      setTimeout(() => setStreamMode("preview"), 2000);
+    }
+
+    async function loadStudents() {
+      const res = await apiCall('/students', 'GET');
+      const tbody = document.getElementById('studentTable');
+      tbody.innerHTML = '';
+      if(res && res.length) {
+        res.forEach(s => {
+          tbody.innerHTML += `<tr><td>${s.student_id}</td><td class="text-start">${escapeHtml(s.name)} <span class="badge bg-secondary rounded-pill">${s.face_count}</span></td></tr>`;
+        });
+      }
+    }
+
+    async function loadAttendance() {
+      if (!CURRENT_SESSION_ID) return;
+      const res = await apiCall(`/attendance?session_id=${encodeURIComponent(CURRENT_SESSION_ID)}`, 'GET');
+      const tbody = document.getElementById('attendanceTable');
+      tbody.innerHTML = '';
+      if(res && res.length) {
+        res.forEach(a => {
+          const t = new Date(a.checked_at).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
+          tbody.innerHTML += `<tr><td>${t}</td><td>${a.student_id}</td><td class="text-start">${escapeHtml(a.name)}</td></tr>`;
+        });
+      }
+    }
+
+    window.onload = async function() {
+      CURRENT_SESSION_ID = getSessionIdFromUrl();
+
+      if (!CURRENT_SESSION_ID) {
+        // ถ้าเคยเลือกคาบล่าสุดไว้ในเครื่อง -> เข้าอัตโนมัติ
+        const lastId = localStorage.getItem('last_session_id');
+        const lastTitle = localStorage.getItem('last_session_title');
+        if (lastId) {
+          enterSession(lastId, lastTitle || `คาบ #${lastId}`);
+          return;
+        }
+
+        showSessionPicker();
+        await loadSessions();
+        return;
+      }
+
+      // มี session_id ใน URL -> ดึงชื่อคาบ
+      try {
+        const s = await apiCall(`/sessions/${encodeURIComponent(CURRENT_SESSION_ID)}`, 'GET');
+        if (s && !s.error) {
+          enterSession(s.id, s.title);
+        } else {
+          switchSession();
+        }
+      } catch {
+        switchSession();
+      }
+    }
+  </script>
+</body>
+</html>

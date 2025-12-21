@@ -1,0 +1,41 @@
+# services:
+#   backend:
+#     build: ./backend
+#     env_file:
+#       - .env
+#     volumes:
+#       - ./backend/data:/app/data
+#     ports:
+#       - "5000:5000"
+
+#   nginx:
+#     image: nginx:alpine
+#     depends_on:
+#       - backend
+#     volumes:
+#       - ./frontend:/usr/share/nginx/html:ro
+#       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+#     ports:
+#       - "8080:80"
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    volumes:
+      - ./backend/data:/app/data
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8888:80"
+    restart: unless-stopped
