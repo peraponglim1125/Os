@@ -38,7 +38,7 @@ Smart Face Attendance | ระบบเช็คชื่อด้วยใบ�
 ## 5. 🧩 Project Workflow
 *แผนภาพแสดงการทำงานของระบบ (System Flow) หรือ Architecture*
 
-![Place Diagram Here]()
+![Place Diagram Here](./Screenshot%202026-01-05%20095843.png)
 
 
 ## 6. 🎥 Demo / Preview
