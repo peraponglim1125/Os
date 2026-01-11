@@ -616,40 +616,42 @@ def checkin():
         if session_id is None:
             return jsonify({"error": "session_id required"}), 400
 
-        try:
-            best = pick_best_quality_frame(fetch_frame_from_buffer, attempts=8, brutal=True)  # ลดจาก 18 เป็น 8 สำหรับ Pi 3
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
+        # ดึง frame จากกล้อง (พยายาม 5 ครั้ง)
+        frame = None
+        for _ in range(5):
+            frame, ts = get_latest_frame_copy()
+            if frame is not None:
+                break
+            time.sleep(0.1)
+        
+        if frame is None:
+            return jsonify({"status": "no_match", "message": "ไม่มีภาพจากกล้อง"}), 200
 
-        if best is None:
-            return jsonify({"status": "no_match", "message": "ไม่พบใบหน้า"}), 200
-
-        display = best["rotated_img"].copy()
-        x, y, w, h = best["rect"]
-        cv2.rectangle(display, (x, y), (x + w, y + h), (0, 165, 255), 3)
-
-        if not best["ok"]:
-            q = best["quality"]
-            cv2.putText(display, "FACE NOT CLEAR", (10, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+        # หาใบหน้า (ไม่เข้มงวด)
+        res = get_best_face(frame, brutal=False)
+        
+        if res is None:
             return jsonify({
                 "status": "no_match",
-                "best_score": 0.0,
-                "image": bgr_to_b64(display),
-                "message": f"หน้าควรชัด/เพิ่มแสง (sharp={q['blur']:.0f}, bright={q['brightness']:.0f})"
+                "message": "ไม่พบใบหน้า - มองกล้องตรงๆ",
+                "image": bgr_to_b64(frame)
             }), 200
 
+        display = res["rotated_img"].copy()
+        x, y, w, h = res["rect"]
+        live_crop = res["face_crop"]
+        
+        # วาดกรอบหน้า
         cv2.rectangle(display, (x, y), (x + w, y + h), (0, 255, 0), 3)
         img_b64 = bgr_to_b64(display)
-        live_crop = best["face_crop"]
 
+        # ดึงข้อมูลใบหน้าจาก DB
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
             SELECT s.id AS student_pk, s.student_id, s.name, f.image_path
             FROM students s
             JOIN student_faces f ON f.student_pk = s.id
-            ORDER BY f.id DESC
         """)
         refs = cur.fetchall()
 
@@ -663,6 +665,7 @@ def checkin():
                 "message": "ยังไม่มีข้อมูลใบหน้าที่ลงทะเบียน"
             }), 200
 
+        # Train และ predict
         recognizer = train_lbph(images, labels)
         if recognizer is None:
             conn.close()
@@ -671,15 +674,15 @@ def checkin():
         pred_label, conf = recognizer.predict(live_crop)
         score = lbph_score_from_confidence(conf)
 
-        # ปรับ threshold ให้เช็คง่าย (70 = ยืดหยุ่นมาก)
-        pass_match = conf <= 70.0
+        # Threshold 100 = ง่ายมากๆๆ (ยิ่งสูงยิ่งง่าย)
+        pass_match = conf <= 100.0
         if not pass_match:
             conn.close()
             return jsonify({
                 "status": "no_match",
                 "best_score": score,
                 "image": img_b64,
-                "message": f"ไม่ตรงกับใคร (score={score:.2f}, dist={conf:.1f})"
+                "message": f"ไม่ตรง (dist={conf:.0f})"
             }), 200
 
         cur.execute("SELECT id, student_id, name FROM students WHERE id = ?", (int(pred_label),))
