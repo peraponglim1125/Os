@@ -2,3 +2,4 @@ flask
 requests
 numpy<2
 opencv-contrib-python-headless
+openpyxl

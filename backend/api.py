@@ -6,7 +6,8 @@ from recognize import (
     pick_best_quality_frame,
     load_training_data,
     train_lbph,
-    lbph_score_from_confidence
+    lbph_score_from_confidence,
+    invalidate_recognizer_cache
 )
 
 import os
@@ -16,6 +17,9 @@ import requests
 import cv2
 import numpy as np
 import base64
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 app = Flask(__name__)
 
@@ -141,14 +145,28 @@ def mjpeg_grabber(url: str):
         except Exception:
             time.sleep(0.3)
 
+# Flag สำหรับ restart grabber
+_grabber_should_restart = False
+_grabber_thread = None
+
 def start_grabber():
+    global _grabber_thread
     url = phone_cam_url()
     if is_mjpeg_url(url):
-        t = threading.Thread(target=mjpeg_grabber, args=(url,), daemon=True)
-        t.start()
+        _grabber_thread = threading.Thread(target=mjpeg_grabber, args=(url,), daemon=True)
+        _grabber_thread.start()
     else:
-        t = threading.Thread(target=snapshot_grabber, args=(url,), daemon=True)
-        t.start()
+        _grabber_thread = threading.Thread(target=snapshot_grabber, args=(url,), daemon=True)
+        _grabber_thread.start()
+    print(f"[Grabber] Started for {url}", flush=True)
+
+def restart_grabber():
+    """Reset camera - clear buffer to force reconnect"""
+    global _latest_frame, _latest_ts
+    with _lock:
+        _latest_frame = None
+        _latest_ts = 0.0
+    print("[Grabber] Buffer cleared, waiting for reconnect...", flush=True)
 
 try:
     start_grabber()
@@ -169,54 +187,60 @@ def gen_frames(mode="preview", student_id=""):
     last_quality = None
 
     while True:
-        frame, ts = get_latest_frame_copy()
-        if frame is None:
-            time.sleep(0.03)
-            continue
+        try:
+            frame, ts = get_latest_frame_copy()
+            if frame is None:
+                time.sleep(0.05)  # รอนานขึ้นเมื่อไม่มี frame
+                continue
 
-        frame_id += 1
+            frame_id += 1
 
-        if frame_id % max(DETECT_EVERY, 1) == 0:
-            res = get_best_face(frame, brutal=brutal)
-            if res is not None:
-                last_rect = res["rect"]
-                last_ok = bool(res.get("ok", False))
-                last_quality = res.get("quality", None)
+            if frame_id % max(DETECT_EVERY, 1) == 0:
+                res = get_best_face(frame, brutal=brutal)
+                if res is not None:
+                    last_rect = res["rect"]
+                    last_ok = bool(res.get("ok", False))
+                    last_quality = res.get("quality", None)
 
-                LATEST_FACE_OK = last_ok
+                    LATEST_FACE_OK = last_ok
+                else:
+                    last_rect = None
+                    last_ok = False
+                    last_quality = None
+                    LATEST_FACE_OK = False
+
+            display = frame
+
+            if last_rect is not None:
+                x, y, w, h = last_rect
+                color = (0, 255, 0) if last_ok else (0, 165, 255)
+                cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
+
+                if brutal and last_quality:
+                    msg1 = f"sharp:{last_quality.get('blur', 0):.0f} bright:{last_quality.get('brightness', 0):.0f}"
+                    msg2 = "OK - Capturable" if last_ok else "Hold still / Improve light"
+                    cv2.putText(display, msg1, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+                    cv2.putText(display, msg2, (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+                    if student_id:
+                        cv2.putText(display, f"ID: {student_id}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
             else:
-                last_rect = None
-                last_ok = False
-                last_quality = None
-                LATEST_FACE_OK = False
+                if brutal:
+                    cv2.putText(display, "NO FACE", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
 
-        display = frame
+            jpg = encode_stream_jpg(display)
+            if jpg is None:
+                continue
 
-        if last_rect is not None:
-            x, y, w, h = last_rect
-            color = (0, 255, 0) if last_ok else (0, 165, 255)
-            cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
-
-            if brutal and last_quality:
-                msg1 = f"sharp:{last_quality.get('blur', 0):.0f} bright:{last_quality.get('brightness', 0):.0f}"
-                msg2 = "OK - Capturable" if last_ok else "Hold still / Improve light"
-                cv2.putText(display, msg1, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
-                cv2.putText(display, msg2, (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
-                if student_id:
-                    cv2.putText(display, f"ID: {student_id}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
-        else:
-            if brutal:
-                cv2.putText(display, "NO FACE", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
-
-        jpg = encode_stream_jpg(display)
-        if jpg is None:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
+            )
+            time.sleep(0.02)  # ลด frame rate เพื่อลดโหลด
+        except GeneratorExit:
+            break
+        except Exception:
+            time.sleep(0.1)
             continue
-
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
-        )
-        time.sleep(0.001)
 
 @app.route("/video_feed")
 def video_feed():
@@ -266,6 +290,15 @@ def save_face_image(student_id: str) -> str:
 def health():
     return jsonify({"status": "ok"})
 
+@app.route("/reset_camera", methods=["POST"])
+def reset_camera():
+    """Restart the camera grabber to reconnect to phone camera"""
+    try:
+        restart_grabber()
+        return jsonify({"status": "ok", "message": "Camera grabber restarted"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/enroll", methods=["POST"])
 def enroll():
     body = request.get_json(force=True)
@@ -304,6 +337,7 @@ def enroll_face():
         path = save_face_image(sid)
         cur.execute("INSERT INTO student_faces(student_pk, image_path) VALUES (?, ?)", (s["id"], path))
         conn.commit()
+        invalidate_recognizer_cache()  # ล้าง cache เพื่อ train ใหม่รอบหน้า
     except Exception as e:
         conn.close()
         return jsonify({"error": f"failed: {e}"}), 400
@@ -325,6 +359,51 @@ def list_students():
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(rows)
+
+@app.route("/students/<student_id>", methods=["DELETE"])
+def delete_student(student_id: str):
+    """ลบนักศึกษาพร้อมรูปภาพใบหน้าที่เชื่อมโยง"""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # ค้นหา student_pk จาก student_id
+    cur.execute("SELECT id FROM students WHERE student_id = ?", (student_id,))
+    student = cur.fetchone()
+    
+    if not student:
+        conn.close()
+        return jsonify({"error": "ไม่พบนักศึกษา"}), 404
+    
+    student_pk = student["id"]
+    
+    # ดึง path ของรูปภาพทั้งหมดเพื่อลบไฟล์
+    cur.execute("SELECT image_path FROM student_faces WHERE student_pk = ?", (student_pk,))
+    face_rows = cur.fetchall()
+    
+    # ลบไฟล์รูปภาพจากระบบ
+    for row in face_rows:
+        image_path = row["image_path"]
+        if image_path and os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                print(f"Warning: could not delete file {image_path}: {e}")
+    
+    # ลบข้อมูลการเช็คชื่อของนักศึกษา (ถ้าต้องการ)
+    cur.execute("DELETE FROM attendance_logs WHERE student_pk = ?", (student_pk,))
+    
+    # ลบรูปภาพใบหน้าจากฐานข้อมูล
+    cur.execute("DELETE FROM student_faces WHERE student_pk = ?", (student_pk,))
+    
+    # ลบข้อมูลนักศึกษา
+    cur.execute("DELETE FROM students WHERE id = ?", (student_pk,))
+    
+    conn.commit()
+    conn.close()
+    
+    invalidate_recognizer_cache()  # ล้าง cache เพื่อ train ใหม่รอบหน้า
+    
+    return jsonify({"status": "deleted", "student_id": student_id})
 
 # =========================
 # Sessions (คาบเรียน)
@@ -374,6 +453,42 @@ def get_session(session_id: int):
         return jsonify({"error": "session not found"}), 404
     return jsonify(dict(row))
 
+@app.route("/sessions/<int:session_id>", methods=["DELETE"])
+def delete_session(session_id: int):
+    """ลบคาบเรียนพร้อมผลการเช็คชื่อทั้งหมดในคาบนั้น"""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # ตรวจสอบว่าคาบมีอยู่จริง
+    cur.execute("SELECT id, title FROM sessions WHERE id = ?", (session_id,))
+    session = cur.fetchone()
+    
+    if not session:
+        conn.close()
+        return jsonify({"error": "ไม่พบคาบ"}), 404
+    
+    session_title = session["title"]
+    
+    # นับจำนวนการเช็คชื่อที่จะถูกลบ
+    cur.execute("SELECT COUNT(*) as count FROM attendance_logs WHERE session_id = ?", (session_id,))
+    attendance_count = cur.fetchone()["count"]
+    
+    # ลบผลการเช็คชื่อในคาบนี้
+    cur.execute("DELETE FROM attendance_logs WHERE session_id = ?", (session_id,))
+    
+    # ลบคาบ
+    cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        "status": "deleted",
+        "session_id": session_id,
+        "title": session_title,
+        "attendance_deleted": attendance_count
+    })
+
 @app.route("/attendance")
 def list_attendance():
     session_id = (request.args.get("session_id") or "").strip()
@@ -396,6 +511,103 @@ def list_attendance():
     conn.close()
     return jsonify(rows)
 
+@app.route("/attendance/export")
+def export_attendance():
+    """Export รายชื่อเช็คชื่อเป็นไฟล์ Excel"""
+    session_id = (request.args.get("session_id") or "").strip()
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # ดึงข้อมูลคาบ
+    cur.execute("SELECT id, title, created_at FROM sessions WHERE id = ?", (int(session_id),))
+    session = cur.fetchone()
+    if not session:
+        conn.close()
+        return jsonify({"error": "session not found"}), 404
+    
+    session_title = session["title"]
+    
+    # ดึงข้อมูลการเช็คชื่อ
+    cur.execute(
+        """
+        SELECT student_id, name, checked_at
+        FROM attendance_logs
+        WHERE session_id = ?
+        ORDER BY checked_at ASC
+        """,
+        (int(session_id),),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    # สร้าง Excel workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "รายชื่อเช็คชื่อ"
+
+    # Styles
+    header_font = Font(bold=True, color="FFFFFF", size=12)
+    header_fill = PatternFill(start_color="0D6EFD", end_color="0D6EFD", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Title row
+    ws.merge_cells('A1:D1')
+    ws['A1'] = f"รายชื่อเช็คชื่อ - {session_title}"
+    ws['A1'].font = Font(bold=True, size=14)
+    ws['A1'].alignment = Alignment(horizontal="center")
+
+    # Header row
+    headers = ["ลำดับ", "รหัสนักศึกษา", "ชื่อ-นามสกุล", "เวลาเช็คชื่อ"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # Data rows
+    for i, row in enumerate(rows, 1):
+        ws.cell(row=i+3, column=1, value=i).border = thin_border
+        ws.cell(row=i+3, column=2, value=row["student_id"]).border = thin_border
+        ws.cell(row=i+3, column=3, value=row["name"]).border = thin_border
+        ws.cell(row=i+3, column=4, value=row["checked_at"]).border = thin_border
+
+    # Column widths
+    ws.column_dimensions['A'].width = 8
+    ws.column_dimensions['B'].width = 18
+    ws.column_dimensions['C'].width = 30
+    ws.column_dimensions['D'].width = 22
+
+    # Summary row
+    summary_row = len(rows) + 5
+    ws.cell(row=summary_row, column=1, value=f"รวมทั้งหมด: {len(rows)} คน")
+    ws.cell(row=summary_row, column=1).font = Font(bold=True)
+
+    # Save to bytes
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    # Create filename (ASCII only to avoid encoding issues)
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"attendance_session{session_id}_{timestamp}.xlsx"
+
+    return Response(
+        output.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 @app.route("/checkin", methods=["POST"])
 def checkin():
     try:
@@ -405,7 +617,7 @@ def checkin():
             return jsonify({"error": "session_id required"}), 400
 
         try:
-            best = pick_best_quality_frame(fetch_frame_from_buffer, attempts=18, brutal=True)
+            best = pick_best_quality_frame(fetch_frame_from_buffer, attempts=8, brutal=True)  # ลดจาก 18 เป็น 8 สำหรับ Pi 3
         except Exception as e:
             return jsonify({"error": str(e)}), 400
 
@@ -459,7 +671,8 @@ def checkin():
         pred_label, conf = recognizer.predict(live_crop)
         score = lbph_score_from_confidence(conf)
 
-        pass_match = conf <= 65.0
+        # ปรับ threshold ให้เช็คง่าย (70 = ยืดหยุ่นมาก)
+        pass_match = conf <= 70.0
         if not pass_match:
             conn.close()
             return jsonify({
