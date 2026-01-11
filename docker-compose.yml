@@ -20,7 +20,8 @@
 
 services:
   backend:
-    build: ./backend
+    image: b6626259/os:tagname
+    platform: linux/amd64
     env_file:
       - .env
     volumes:
