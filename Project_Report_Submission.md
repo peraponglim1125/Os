@@ -165,13 +165,17 @@
 
 ## เอกสารอ้างอิง
 
-1.  Viola, P., & Jones, M. (2001). *Rapid Object Detection Using a Boosted Cascade of Simple Features*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://www.cs.cmu.edu/~efros/courses/LBMV07/Papers/viola-cvpr-01.pdf
-2.  Ahonen, T., Hadid, A., & Pietikäinen, M. (2006). *Face Recognition with Local Binary Patterns*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://link.springer.com/chapter/10.1007/11744085_41
-3.  King, D. E. (2009). *Dlib-ml: A Machine Learning Toolkit*. สืบค้นเมื่อ 11 มกราคม 2568, จาก http://dlib.net/
-4.  Geitgey, A. (2024). *face_recognition: The world's simplest facial recognition api for Python*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://github.com/ageitgey/face_recognition
-5.  OpenCV Team. (2024). *OpenCV: Open Source Computer Vision Library*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://opencv.org/
-6.  Raspberry Pi Foundation. (2024). *Raspberry Pi Documentation*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://www.raspberrypi.com/documentation/
-7.  Pallets Projects. (2024). *Flask: A Python Microframework*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://flask.palletsprojects.com/
-8.  Docker Inc. (2024). *Docker Documentation*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://docs.docker.com/
-9.  SQLite Consortium. (2024). *SQLite Documentation*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://www.sqlite.org/docs.html
-10. Bradski, G., & Kaehler, A. (2008). *Learning OpenCV: Computer Vision with the OpenCV Library*. สืบค้นเมื่อ 11 มกราคม 2568, จาก https://www.oreilly.com/library/view/learning-opencv/9780596516130/
+1.  Viola, P., & Jones, M. (2001). *Rapid Object Detection Using a Boosted Cascade of Simple Features*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://www.cs.cmu.edu/~efros/courses/LBMV07/Papers/viola-cvpr-01.pdf
+2.  Ahonen, T., Hadid, A., & Pietikäinen, M. (2006). *Face Recognition with Local Binary Patterns*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://link.springer.com/chapter/10.1007/11744085_41
+3.  King, D. E. (2009). *Dlib-ml: A Machine Learning Toolkit*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก http://dlib.net/
+4.  Geitgey, A. (2024). *face_recognition: The world's simplest facial recognition api for Python*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://github.com/ageitgey/face_recognition
+5.  OpenCV Team. (2024). *OpenCV: Open Source Computer Vision Library*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://opencv.org/
+6.  Raspberry Pi Foundation. (2024). *Raspberry Pi Documentation*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://www.raspberrypi.com/documentation/
+7.  Pallets Projects. (2024). *Flask: A Python Microframework*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://flask.palletsprojects.com/
+8.  Docker Inc. (2024). *Docker Documentation*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://docs.docker.com/
+9.  SQLite Consortium. (2024). *SQLite Documentation*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://www.sqlite.org/docs.html
+10. Bradski, G., & Kaehler, A. (2008). *Learning OpenCV: Computer Vision with the OpenCV Library*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://www.oreilly.com/library/view/learning-opencv/9780596516130/
+11. Ojala, T., Pietikäinen, M., & Mäenpää, T. (2002). *Multiresolution Gray-Scale and Rotation Invariant Texture Classification with Local Binary Patterns*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://ieeexplore.ieee.org/document/1017623
+12. Bansal, R., Raj, G., & Choudhury, T. (2016). *Blur image detection using Laplacian operator and Open-CV*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://ieeexplore.ieee.org/document/7860215
+13. Gonzalez, R. C., & Woods, R. E. (2018). *Digital Image Processing (4th Edition)*. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก http://www.imageprocessingplace.com/
+14. Lavanya, K., Akalyaa, N., Archana, S., & Pushpakala, J. (2024). *Face Recognition based Attendance System*. Shanlax International Journal of Arts, Science and Humanities. สืบค้นเมื่อ 21 ธันวาคม 2568, จาก https://www.researchgate.net/publication/382181519_Face_Recognition_based_Attendance_System
